@@ -12,7 +12,7 @@ from tensorboardX import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
-from attack.BFA import *
+from attack.BFA2 import *
 import torch.nn.functional as F
 import copy
 
@@ -44,7 +44,7 @@ parser.add_argument('--arch',
 # Optimization options
 parser.add_argument('--epochs',
                     type=int,
-                    default=200,
+                    default=150,
                     help='Number of epochs to train.')
 parser.add_argument('--optimizer',
                     type=str,
@@ -218,6 +218,9 @@ def main():
     elif args.dataset == 'mnist':
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
+    elif args.dataset == 'stl10':
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
     elif args.dataset == 'imagenet':
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -237,6 +240,54 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])  # here is actually the validation dataset
+    elif args.dataset == 'cifar10' and args.arch == 'alexnet_quan':
+        train_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ]) 
+    elif args.dataset == 'cifar100' and args.arch == 'alexnet_quan':
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(240),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+    elif args.dataset == 'svhn' and args.arch == 'alexnet_quan':
+        train_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+    elif args.dataset == 'stl10' and args.arch == 'alexnet_quan':
+        train_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
     else:
         train_transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
@@ -442,13 +493,12 @@ def main():
                 m.__reset_weight__()
                 # print(m.weight)
 
-    attacker = BFA(criterion, args.k_top)
+    attacker = BFA2(criterion, args.k_top)
     net_clean = copy.deepcopy(net)
     # weight_conversion(net)
 
     if args.enable_bfa:
-        perform_attack(attacker, net, net_clean, train_loader, test_loader,
-                       args.n_iter, log, writer)
+        perform_attack(attacker, net, net_clean, train_loader, test_loader, args.n_iter, log, writer)
         return
 
     if args.evaluate:
@@ -512,6 +562,7 @@ def main():
         # ============ TensorBoard logging ============#
 
         ## Log the graidents distribution
+        '''
         for name, param in net.named_parameters():
             name = name.replace('.', '/')
             writer.add_histogram(name + '/grad',
@@ -531,7 +582,7 @@ def main():
                         module.weight.clone().cpu().data.numpy(),
                         epoch + 1,
                         bins='tensorflow')
-
+        '''
         writer.add_scalar('loss/train_loss', train_los, epoch + 1)
         writer.add_scalar('loss/test_loss', val_los, epoch + 1)
         writer.add_scalar('accuracy/train_accuracy', train_acc, epoch + 1)
@@ -549,6 +600,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
     losses = AverageMeter()
     iter_time = AverageMeter()
     attack_time = AverageMeter()
+    trace_log = open("/home/fpo/Bitflip/{}_{}.txt".format(args.dataset,args.arch),'a')
 
     # attempt to use the training data to conduct BFA
     for _, (data, target) in enumerate(train_loader):
@@ -560,19 +612,26 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
         break
 
     # evaluate the test accuracy of clean model
-    val_acc_top1, val_acc_top5, val_loss = validate(test_loader, model,
-                                                    attacker.criterion, log)
+#    val_acc_top1, val_acc_top5, val_loss = validate(test_loader, model,
+#                                                    attacker.criterion, log)
+#
+#    writer.add_scalar('attack/val_top1_acc', val_acc_top1, 0)
+#    writer.add_scalar('attack/val_top5_acc', val_acc_top5, 0)
+#    writer.add_scalar('attack/val_loss', val_loss, 0)
 
-    writer.add_scalar('attack/val_top1_acc', val_acc_top1, 0)
-    writer.add_scalar('attack/val_top5_acc', val_acc_top5, 0)
-    writer.add_scalar('attack/val_loss', val_loss, 0)
+    # count the number of layers 
+    iter = 0
+    for name, module in model.named_modules():
+        if isinstance(module,quan_Conv2d) or isinstance(module,quan_Linear):
+            iter = iter + 1
 
+    
     print_log('k_top is set to {}'.format(args.k_top), log)
     print_log('Attack sample size is {}'.format(data.size()[0]), log)
     end = time.time()
-    for i_iter in range(N_iter):
+    for i_iter in range(iter):
         print_log('**********************************', log)
-        attacker.progressive_bit_search(model, data, target)
+        attacker.progressive_bit_search(model, data, target,i_iter)
 
         # measure data loading time
         attack_time.update(time.time() - end)
@@ -587,15 +646,21 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
             'Iteration: [{:03d}/{:03d}]   '
             'Attack Time {attack_time.val:.3f} ({attack_time.avg:.3f})  '.
             format((i_iter + 1),
-                   N_iter,
+                   iter,
                    attack_time=attack_time,
                    iter_time=iter_time) + time_string(), log)
 
         print_log('loss before attack: {:.4f}'.format(attacker.loss.item()),
                   log)
         print_log('loss after attack: {:.4f}'.format(attacker.loss_max), log)
-        print_log('bit flips: {:.0f}'.format(attacker.bit_counter), log)
+        print_log('index to flip : {:.0f}'.format(attacker.flip_idx),log)
+#        print_log('bit flips: {:.0f}'.format(attacker.bit_counter), log)
         print_log('hamming_dist: {:.0f}'.format(h_dist), log)
+        
+        loss_delta = attacker.loss_max - attacker.loss.item()
+        trace_log.write('{} {} {:.3f}'.format(attacker.layer,attacker.flip_idx,loss_delta))
+        trace_log.flush()
+        
 
         writer.add_scalar('attack/bit_flip', attacker.bit_counter, i_iter + 1)
         writer.add_scalar('attack/h_dist', h_dist, i_iter + 1)
@@ -615,6 +680,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
             'iteration Time {iter_time.val:.3f} ({iter_time.avg:.3f})'.format(
                 iter_time=iter_time), log)
         end = time.time()
+    print_log('',trace_log)
 
     return
 
@@ -687,6 +753,8 @@ def validate(val_loader, model, criterion, log):
     top1 = AverageMeter()
     top5 = AverageMeter()
 
+    
+    trace_log = open("/home/fpo/Bitflip/{}_{}.txt".format(args.dataset,args.arch),'a')
     # switch to evaluate mode
     model.eval()
 
@@ -706,6 +774,7 @@ def validate(val_loader, model, criterion, log):
             top1.update(prec1.item(), input.size(0))
             top5.update(prec5.item(), input.size(0))
 
+        print_log(' {:.3f}'.format(top1.avg),trace_log)
         print_log(
             '  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'
             .format(top1=top1, top5=top5, error1=100 - top1.avg), log)

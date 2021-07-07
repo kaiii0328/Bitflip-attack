@@ -126,13 +126,14 @@ class MobileNetV2(nn.Module):
                 m.bias.data.zero_()
 
 
-def mobilenet_v2_quan(pretrained=True, **kwargs):
+def mobilenet_v2_quan(pretrained=False, **kwargs):
     """Constructs a ResNet-18 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = MobileNetV2(n_class=1000)
+    '''
     if pretrained:
         model_path = '/home/elliot/Documents/ICCV_2019_BFA/mobilenet_model/mobilenet_v2.pth.tar'
         pretrained_dict = torch.load(model_path)
@@ -140,4 +141,5 @@ def mobilenet_v2_quan(pretrained=True, **kwargs):
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         model.load_state_dict(model_dict)
+    '''
     return model

@@ -184,7 +184,7 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18_quan(pretrained=True, **kwargs):
+def resnet18_quan(pretrained=False, **kwargs):
     """Constructs a ResNet-18 model.
 
     Args:
@@ -203,7 +203,7 @@ def resnet18_quan(pretrained=True, **kwargs):
     return model
 
 
-def resnet34_quan(pretrained=True, **kwargs):
+def resnet34_quan(pretrained=False, **kwargs):
     """Constructs a ResNet-34 model.
 
     Args:
